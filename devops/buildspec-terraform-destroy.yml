@@ -1,0 +1,24 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.7
+    commands:
+      - sudo yum install -y yum-utils
+      - sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+      - sudo yum -y install terraform
+
+  build:
+    commands:
+      - export TF_VAR_sonarurl=$sonarqubeurl
+      - export TF_VAR_sonartoken=$sonarqubetoken
+      - cd "$CODEBUILD_SRC_DIR/devops/terraform"
+      - aws s3 cp s3://devsecops-poc/statefile/terraform.tfstate .
+      - aws s3 rm s3://codepipelinedevsecopspoc/Devsecops-pipeline --recursive
+      - terraform init
+      - terraform destroy -auto-approve
+
+  post_build:
+    commands:
+      - echo "Terraform resources destroyed on `date`"

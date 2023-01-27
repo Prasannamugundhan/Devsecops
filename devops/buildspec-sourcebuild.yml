@@ -1,0 +1,14 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      java: corretto11
+  post_build:
+    commands:
+      - mvn clean install -f $CODEBUILD_SRC_DIR/pom.xml
+      - mv $CODEBUILD_SRC_DIR/target/Java.war Java.war
+artifacts:
+  files:
+    - Java.war
+    - .ebextensions/**/*

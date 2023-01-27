@@ -1,0 +1,44 @@
+##Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+##SPDX-License-Identifier: MIT-0
+version: 0.2
+phases:
+  install:
+    commands:
+      - echo "install phase....."
+  pre_build:
+    commands:
+      - curl -Ls https://github.com/zaproxy/zaproxy/releases/download/v2.9.0/ZAP_2.9.0_Linux.tar.gz > /tmp/ZAP_2.9.0_Linux.tar.gz
+      - cd /tmp
+      - tar -zxvf ZAP_2.9.0_Linux.tar.gz
+      - sudo mv /tmp/ZAP_2.9.0 /opt/
+  build:
+    commands:
+      - /opt/ZAP_2.9.0/zap.sh -cmd -addoninstall exportreport
+      - timestamp=$(date '+%s')
+      - scan_date=$(date -d @$timestamp)
+      - /opt/ZAP_2.9.0/zap.sh -cmd -quickurl http://$appurl/Java/ -quickprogress -newsession "$timestamp" -quickout $CODEBUILD_SRC_DIR/out.xml
+      - /opt/ZAP_2.9.0/zap.sh -export_report $CODEBUILD_SRC_DIR/zap.json -source_info "zapreport;Devops;poc;$scan_date;$scan_date;1;1;ZAP analysis report for $appurl" -alert_severity "t;t;f;t" -alert_details "t;t;t;t;t;t;f;f;f;f" -session "$timestamp.session" -cmd
+      - echo "OWASP ZAP analysis status is completed...";
+      - ls $CODEBUILD_SRC_DIR/
+      - if( cat $CODEBUILD_SRC_DIR/zap.json | jq -r '.Report.Sites.Alerts.AlertItem.Item.Confidence' | grep "High"); then high_risk_dependency=1; else high_risk_dependency=0; fi
+      - if( cat $CODEBUILD_SRC_DIR/zap.json | jq -r '.Report.Sites.Alerts.AlertItem.Item.Confidence' | grep "Medium"); then medium_risk_dependency=1; else medium_risk_dependency=0; fi
+  post_build:
+    commands:
+      - |
+        jq "{ \"messageType\": \"CodeScanReport\", \"reportType\": \"OWASP-Zap\", \
+        \"createdAt\": $(date +\"%Y-%m-%dT%H:%M:%S.%3NZ\"), \"source_repository\": env.CODEBUILD_SOURCE_REPO_URL, \
+        \"source_branch\": env.CODEBUILD_SOURCE_VERSION, \
+        \"build_id\": env.CODEBUILD_BUILD_ID, \
+        \"source_commitid\": env.CODEBUILD_RESOLVED_SOURCE_VERSION, \
+        \"report\": . }" $CODEBUILD_SRC_DIR/zap.json > $CODEBUILD_SRC_DIR/payload.json
+      - |
+        if [ $high_risk_dependency -gt 0 ]; then
+          echo "there are high alerts.. failing the build"
+          aws lambda invoke --function-name ImportVulToSecurityHub --payload file://$CODEBUILD_SRC_DIR/payload.json zap.json && echo "LAMBDA_SUCCEDED" || echo "LAMBDA_FAILED";
+          exit 1;
+          else 
+          echo "There's no high or medium alerts."
+        fi
+artifacts:
+  type: zip
+  files: '*.json'
